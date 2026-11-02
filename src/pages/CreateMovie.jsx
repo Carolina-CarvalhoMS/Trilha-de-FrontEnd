@@ -31,6 +31,7 @@ export function CreateMovie() {
     const yearNum = Number(releaseYear);
     const currentYear = new Date().getFullYear();
 
+    // Validação de ano
     if (isNaN(yearNum) || yearNum < 1888 || yearNum > currentYear) {
       setFeedback({
         type: 'error',
@@ -39,9 +40,44 @@ export function CreateMovie() {
       return;
     }
 
+    const normalizedNewTitle = normalizeTitle(title);
+    if (!normalizedNewTitle) {
+      setFeedback({ type: 'error', message: 'O título do filme é obrigatório.' });
+      return;
+    }
+
     setSubmitting(true);
 
     try {
+      // 1. Busca os filmes existentes da API e do LocalStorage para checar duplicatas
+      let apiMovies = [];
+      try {
+        const response = await api.get('/movies');
+        const data = response.data?.data || response.data?.movies || response.data || [];
+        if (Array.isArray(data)) apiMovies = data;
+      } catch (err) {
+        console.warn('Não foi possível buscar filmes da API para checagem de duplicatas.', err);
+      }
+
+      const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
+      const allMovies = [...apiMovies, ...localMovies];
+
+      // 2. Verifica se o título já existe no catálogo
+      const isDuplicate = allMovies.some((m) => {
+        const existingTitle = normalizeTitle(m.title || m.name);
+        return existingTitle === normalizedNewTitle;
+      });
+
+      if (isDuplicate) {
+        setFeedback({
+          type: 'error',
+          message: 'Já existe um filme cadastrado com este título no catálogo.',
+        });
+        setSubmitting(false);
+        return;
+      }
+
+      // 3. Prepara o payload para envio
       const payload = {
         title: title.trim(),
         director: director.trim(),
@@ -63,13 +99,8 @@ export function CreateMovie() {
         console.warn('API não persistiu, salvando localmente.', apiErr);
       }
 
-      // Persiste permanentemente no localStorage do navegador
-      const savedLocalMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
-      const updatedLocalMovies = [
-        createdMovie,
-        ...savedLocalMovies.filter((m) => normalizeTitle(m.title) !== normalizeTitle(createdMovie.title)),
-      ];
-      localStorage.setItem('custom_movies', JSON.stringify(updatedLocalMovies));
+      // Persiste no localStorage
+      localStorage.setItem('custom_movies', JSON.stringify([createdMovie, ...localMovies]));
 
       setFeedback({ type: 'success', message: 'Filme cadastrado com sucesso! Redirecionando...' });
 
