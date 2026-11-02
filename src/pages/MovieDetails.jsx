@@ -25,7 +25,6 @@ export function MovieDetails() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', message: '' });
 
-  // Normaliza o título para ignorar maiúsculas, acentos e caracteres especiais na comparação
   function normalizeTitle(str) {
     if (!str) return '';
     return String(str)
@@ -42,7 +41,6 @@ export function MovieDetails() {
 
       let foundMovie = null;
 
-      // 1. Tenta buscar o filme na API
       try {
         const response = await api.get(`/movies/${id}`);
         foundMovie = response.data?.data || response.data?.movie || response.data;
@@ -50,7 +48,6 @@ export function MovieDetails() {
         console.warn('Filme não encontrado na API, a buscar no localStorage...');
       }
 
-      // 2. Se não encontrar na API, busca no localStorage
       if (!foundMovie || (!foundMovie.title && !foundMovie.name)) {
         const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
         foundMovie = localMovies.find((m) => String(m.id || m._id) === String(id));
@@ -95,40 +92,54 @@ export function MovieDetails() {
       return;
     }
 
-    // Validação de duplicidade de título
     const normalizedNewTitle = normalizeTitle(title);
+    const originalNormalizedTitle = normalizeTitle(movie?.title || movie?.name);
+
     if (!normalizedNewTitle) {
       setFeedback({ type: 'error', message: 'O título do filme é obrigatório.' });
       return;
     }
 
-    let allMovies = [];
-    try {
-      const apiRes = await api.get('/movies');
-      const apiData = apiRes.data?.data || apiRes.data || [];
-      if (Array.isArray(apiData)) allMovies = [...apiData];
-    } catch (err) {
-      console.warn('Não foi possível buscar filmes da API para checagem de duplicatas.', err);
-    }
+    // Só checa duplicidade se o usuário TIVER ALTERADO o título do filme
+    if (normalizedNewTitle !== originalNormalizedTitle) {
+      let apiMovies = [];
+      try {
+        const apiRes = await api.get('/movies');
+        const apiData = apiRes.data?.data || apiRes.data?.movies || apiRes.data || [];
+        if (Array.isArray(apiData)) apiMovies = apiData;
+      } catch (err) {
+        console.warn('Não foi possível buscar filmes da API para checagem de duplicatas.', err);
+      }
 
-    const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
-    allMovies = [...allMovies, ...localMovies];
+      const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
+      const deletedMovies = JSON.parse(localStorage.getItem('deleted_movies') || '[]');
 
-    // Verifica se existe OUTRO filme (com ID diferente) com o mesmo título
-    const isDuplicate = allMovies.some((m) => {
-      const isSameMovie = String(m.id || m._id) === String(id);
-      if (isSameMovie) return false;
+      const isDeleted = (m) => {
+        const mId = String(m.id || m._id);
+        const mTitle = normalizeTitle(m.title || m.name);
+        return deletedMovies.some(
+          (d) => (d.id && String(d.id) === mId) || (d.title && d.title === mTitle)
+        );
+      };
 
-      const existingTitle = normalizeTitle(m.title || m.name);
-      return existingTitle === normalizedNewTitle;
-    });
+      const allActiveMovies = [...apiMovies, ...localMovies].filter((m) => !isDeleted(m));
 
-    if (isDuplicate) {
-      setFeedback({
-        type: 'error',
-        message: 'Já existe outro filme cadastrado com este título no catálogo.',
+      const isDuplicate = allActiveMovies.some((m) => {
+        const isSameMovie =
+          String(m.id || m._id) === String(id) ||
+          normalizeTitle(m.title || m.name) === originalNormalizedTitle;
+        if (isSameMovie) return false;
+
+        return normalizeTitle(m.title || m.name) === normalizedNewTitle;
       });
-      return;
+
+      if (isDuplicate) {
+        setFeedback({
+          type: 'error',
+          message: 'Já existe outro filme cadastrado com este título no catálogo.',
+        });
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -145,20 +156,25 @@ export function MovieDetails() {
     };
 
     try {
-      // Tenta atualizar na API
       try {
         await api.put(`/movies/${id}`, updatedData);
       } catch (apiErr) {
         console.warn('API não aceitou PUT, atualizando apenas localmente.', apiErr);
       }
 
-      // Atualiza no localStorage
+      const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
       const updatedLocalList = localMovies.map((m) =>
-        String(m.id || m._id) === String(id) ? { ...m, ...updatedData } : m
+        String(m.id || m._id) === String(id) || normalizeTitle(m.title || m.name) === originalNormalizedTitle
+          ? { ...m, ...updatedData }
+          : m
       );
-      
-      // Se era um filme original da API e não estava no localStorage, insere a alteração no localStorage
-      const existsInLocal = localMovies.some((m) => String(m.id || m._id) === String(id));
+
+      const existsInLocal = localMovies.some(
+        (m) =>
+          String(m.id || m._id) === String(id) ||
+          normalizeTitle(m.title || m.name) === originalNormalizedTitle
+      );
+
       if (!existsInLocal) {
         updatedLocalList.unshift(updatedData);
       }
@@ -185,12 +201,10 @@ export function MovieDetails() {
         console.warn('API não aceitou DELETE, removendo apenas localmente.', apiErr);
       }
 
-      // 1. Remove da lista de filmes locais
       const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
       const updatedLocal = localMovies.filter((m) => String(m.id || m._id) !== String(id));
       localStorage.setItem('custom_movies', JSON.stringify(updatedLocal));
 
-      // 2. Registra o filme na lista de excluídos para a Home ignorar no GET da API
       const deletedMovies = JSON.parse(localStorage.getItem('deleted_movies') || '[]');
       const movieTitleNormalized = normalizeTitle(movie?.title || movie?.name);
 
@@ -255,7 +269,7 @@ export function MovieDetails() {
               <div
                 style={{
                   display: 'flex',
-                  justify: 'space-between',
+                  justifyContent: 'space-between',
                   alignItems: 'flex-start',
                   flexWrap: 'wrap',
                   gap: '12px',

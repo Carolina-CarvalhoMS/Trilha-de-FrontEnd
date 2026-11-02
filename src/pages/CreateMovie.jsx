@@ -49,7 +49,7 @@ export function CreateMovie() {
     setSubmitting(true);
 
     try {
-      // 1. Busca os filmes existentes da API e do LocalStorage para checar duplicatas
+      // 1. Busca os filmes existentes da API e do LocalStorage
       let apiMovies = [];
       try {
         const response = await api.get('/movies');
@@ -60,10 +60,24 @@ export function CreateMovie() {
       }
 
       const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
-      const allMovies = [...apiMovies, ...localMovies];
+      const deletedMovies = JSON.parse(localStorage.getItem('deleted_movies') || '[]');
 
-      // 2. Verifica se o título já existe no catálogo
-      const isDuplicate = allMovies.some((m) => {
+      // Função para verificar se o filme está na lista de excluídos
+      const isDeleted = (m) => {
+        const mId = String(m.id || m._id);
+        const mTitle = normalizeTitle(m.title || m.name);
+        return deletedMovies.some(
+          (d) => (d.id && String(d.id) === mId) || (d.title && d.title === mTitle)
+        );
+      };
+
+      // Filtra apenas os filmes que NÃO foram excluídos
+      const activeApiMovies = apiMovies.filter((m) => !isDeleted(m));
+      const activeLocalMovies = localMovies.filter((m) => !isDeleted(m));
+      const allActiveMovies = [...activeApiMovies, ...activeLocalMovies];
+
+      // 2. Verifica se o título já existe entre os filmes ativos
+      const isDuplicate = allActiveMovies.some((m) => {
         const existingTitle = normalizeTitle(m.title || m.name);
         return existingTitle === normalizedNewTitle;
       });
@@ -99,8 +113,14 @@ export function CreateMovie() {
         console.warn('API não persistiu, salvando localmente.', apiErr);
       }
 
-      // Persiste no localStorage
-      localStorage.setItem('custom_movies', JSON.stringify([createdMovie, ...localMovies]));
+      // Persiste no localStorage de filmes customizados
+      localStorage.setItem('custom_movies', JSON.stringify([createdMovie, ...activeLocalMovies]));
+
+      // Se o filme estava na lista de excluídos anteriormente, remove-o de lá
+      const updatedDeletedMovies = deletedMovies.filter(
+        (d) => d.title !== normalizedNewTitle && String(d.id) !== String(createdMovie.id)
+      );
+      localStorage.setItem('deleted_movies', JSON.stringify(updatedDeletedMovies));
 
       setFeedback({ type: 'success', message: 'Filme cadastrado com sucesso! Redirecionando...' });
 
