@@ -11,6 +11,15 @@ export function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  function normalizeTitle(str) {
+    if (!str) return '';
+    return String(str)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+  }
+
   function extractMoviesArray(responseData) {
     if (Array.isArray(responseData)) return responseData;
     if (Array.isArray(responseData?.data)) return responseData.data;
@@ -32,17 +41,31 @@ export function Home() {
         console.error('Erro ao buscar API:', err);
       }
 
-      // Recupera os filmes salvos no localStorage do navegador
       const savedLocalMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
+      const deletedMovies = JSON.parse(localStorage.getItem('deleted_movies') || '[]');
 
-      // Mescla os filmes cadastrados localmente com os da API sem criar duplicados
-      const mergedMovies = [...savedLocalMovies];
+      // Função que checa se o filme está marcado como excluído
+      const isDeleted = (m) => {
+        const mId = String(m.id || m._id);
+        const mTitle = normalizeTitle(m.title || m.name);
+        return deletedMovies.some(
+          (d) => (d.id && String(d.id) === mId) || (d.title && d.title === mTitle)
+        );
+      };
+
+      // 1. Pega os filmes do localStorage que não foram excluídos
+      const mergedMovies = savedLocalMovies.filter((m) => !isDeleted(m));
+
+      // 2. Adiciona os filmes da API apenas se não foram excluídos e não estão duplicados
       apiMovies.forEach((apiMovie) => {
+        if (isDeleted(apiMovie)) return;
+
         const exists = mergedMovies.some(
           (m) =>
             String(m.id || m._id) === String(apiMovie.id || apiMovie._id) ||
-            m.title?.toLowerCase().trim() === (apiMovie.title || apiMovie.name)?.toLowerCase().trim()
+            normalizeTitle(m.title || m.name) === normalizeTitle(apiMovie.title || apiMovie.name)
         );
+
         if (!exists) {
           mergedMovies.push(apiMovie);
         }

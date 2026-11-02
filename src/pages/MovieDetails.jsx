@@ -185,9 +185,21 @@ export function MovieDetails() {
         console.warn('API não aceitou DELETE, removendo apenas localmente.', apiErr);
       }
 
+      // 1. Remove da lista de filmes locais
       const localMovies = JSON.parse(localStorage.getItem('custom_movies') || '[]');
       const updatedLocal = localMovies.filter((m) => String(m.id || m._id) !== String(id));
       localStorage.setItem('custom_movies', JSON.stringify(updatedLocal));
+
+      // 2. Registra o filme na lista de excluídos para a Home ignorar no GET da API
+      const deletedMovies = JSON.parse(localStorage.getItem('deleted_movies') || '[]');
+      const movieTitleNormalized = normalizeTitle(movie?.title || movie?.name);
+
+      const newDeletedItem = {
+        id: String(id),
+        title: movieTitleNormalized,
+      };
+
+      localStorage.setItem('deleted_movies', JSON.stringify([...deletedMovies, newDeletedItem]));
 
       navigate('/');
     } catch (err) {
